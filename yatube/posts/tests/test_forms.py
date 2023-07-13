@@ -120,11 +120,11 @@ class PostFormTests(TestCase):
 
     def test_edit_post_not_by_author(self):
         """Проверка редактирования записи не автором поста."""
-        user2 = User.objects.create_user(
+        user_not_author = User.objects.create_user(
             username='another_user'
         )
         authorized_client_2 = Client()
-        authorized_client_2.force_login(user2)
+        authorized_client_2.force_login(user_not_author)
         test_post = Post.objects.create(
             text='Текст поста для редактирования',
             author=self.post_author,
