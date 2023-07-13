@@ -9,6 +9,7 @@ from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from posts.models import Follow, Post, Group, User
+from ..forms import PostForm
 
 TEMP_MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
 
@@ -79,8 +80,30 @@ class PostPagesTests(TestCase):
                     response.context['form'].fields['image'],
                     forms.fields.ImageField)
 
+    def test_group_list_page_show_correct_context(self):
+        """Шаблон group_list сформирован с правильным контекстом."""
+        response = self.client.get(reverse('posts:group_list',
+                                           args=(self.group.slug,)))
+        post_obj = response.context['page_obj'][0]
+        group_obj = response.context['group']
+        self.assertIn('page_obj', response.context)
+        self.assertIn('group', response.context)
+        self.assertEqual(post_obj, self.post)
+        self.assertEqual(group_obj, self.group)
+        self.assertEqual(post_obj.image, self.post.image)
+
+    def test_post_detail_pages_show_correct_context(self):
+        """Шаблон post_detail сформирован с правильным контекстом."""
+        reverse_page = reverse('posts:post_detail',
+                               args=(self.post.id,))
+        response = self.client.get(reverse_page)
+        post_obj = response.context['post']
+        self.assertEqual(post_obj, self.post)
+        self.assertEqual(post_obj.image, self.post.image)
+        self.assertIn('comments', response.context)
+
     def test_index_page_show_correct_context(self):
-        """Шаблон index.html сформирован с правильным контекстом."""
+        """Шаблон index сформирован с правильным контекстом."""
         response = self.client.get(reverse('posts:index'))
         self.assertIn('page_obj', response.context)
         test_post = response.context['page_obj'][0]
@@ -90,21 +113,8 @@ class PostPagesTests(TestCase):
         self.assertEqual(test_post.group, self.post.group)
         self.assertEqual(test_post.image, self.post.image)
 
-    def test_groups_page_show_correct_context(self):
-        """Шаблон group_list.html сформирован с правильным контекстом."""
-        response = self.authorized_client.get(
-            reverse(
-                'posts:group_list',
-                kwargs={'slug': self.group.slug})
-        )
-        self.assertIn('page_obj', response.context)
-        self.assertIn('group', response.context)
-        self.assertIsNotNone('page_obj')
-        self.assertEqual(response.context['group'], self.group)
-        self.check_post_info(response.context['page_obj'][0])
-
     def test_profile_page_show_correct_context(self):
-        """Шаблон profile.html сформирован с правильным контекстом."""
+        """Шаблон profile сформирован с правильным контекстом."""
         response = self.client.get(reverse('posts:profile',
                                            args=(self.user.username,)))
         self.assertIn('page_obj', response.context)
@@ -115,30 +125,24 @@ class PostPagesTests(TestCase):
         self.assertEqual(test_post.group, self.post.group)
         self.assertEqual(test_post.image, self.post.image)
 
-    def test_detail_page_show_correct_context(self):
-        """Шаблон post_detail.html сформирован с правильным контекстом."""
-        response = self.authorized_client.get(
-            reverse(
-                'posts:post_detail',
-                kwargs={'post_id': self.post.id}))
-        self.assertIn('post', response.context)
-        self.check_post_info(response.context['post'])
-
-    def test_cache_index_page(self):
-        """Проверка работы кеша"""
-        post = Post.objects.create(
-            text='Пост под кеш',
-            author=self.user)
-        content_add = self.authorized_client.get(
-            reverse('posts:index')).content
-        post.delete()
-        content_delete = self.authorized_client.get(
-            reverse('posts:index')).content
-        self.assertEqual(content_add, content_delete)
-        cache.clear()
-        content_cache_clear = self.authorized_client.get(
-            reverse('posts:index')).content
-        self.assertNotEqual(content_add, content_cache_clear)
+    def test_create_and_edit_post_page_show_correct_context(self):
+        """Шаблон create_post и edit_post
+        сформирован с правильным контекстом."""
+        self.author_client = Client()
+        self.author_client.force_login(self.user)
+        context = {
+            self.authorized_client: reverse('posts:post_create'),
+            self.author_client: reverse(
+                'posts:post_edit',
+                args=(self.post.id,))
+        }
+        for client, revers in context.items():
+            with self.subTest(client=client):
+                response = client.get(revers)
+                self.assertIn('form', response.context)
+                self.assertIsInstance(response.context['form'], PostForm)
+                if 'is_edit' in response.context:
+                    self.assertEqual(response.context["is_edit"], True)
 
 
 class PaginatorViewsTest(TestCase):
@@ -251,3 +255,31 @@ class FollowViewsTest(TestCase):
         response = self.author_client.get(
             reverse('posts:follow_index'))
         self.assertNotIn(post, response.context['page_obj'].object_list)
+
+
+class CacheTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            username='auth',
+            email='test@test.ru',
+            password='1111',
+        )
+        cls.post = Post.objects.create(
+            author=cls.user,
+            text='Тестовый пост',
+        )
+
+    def setUp(self):
+        cache.clear()
+
+    def test_cache_index_page(self):
+        """Тест кэширования страницы index.html."""
+        test_post = Post.objects.create(author=CacheTests.user)
+        response = self.client.get(reverse('posts:index'))
+        test_post.delete()
+        response_2 = self.client.get(reverse('posts:index'))
+        self.assertEqual(response.content, response_2.content)
+        cache.clear()
+        response_3 = self.client.get(reverse('posts:index'))
+        self.assertNotEqual(response.content, response_3.content)

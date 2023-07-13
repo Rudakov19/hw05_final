@@ -112,7 +112,8 @@ class PostFormTests(TestCase):
             follow=True
         )
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        redirect = reverse('posts:post_detail', args=(post.id,))
+        redirect = reverse('login') + '?next=' + reverse('posts:post_edit',
+                                                         args=(post.id,))
         self.assertRedirects(response, redirect)
         self.assertEqual(post.text, 'Текст поста для редактирования')
         self.assertEqual(post.author, self.post_author)
